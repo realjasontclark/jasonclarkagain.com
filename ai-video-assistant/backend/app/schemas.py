@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -60,6 +61,14 @@ class ScriptResponse(BaseModel):
     video_id: str
     style: ScriptStyle
     script: str
+    created_at: datetime
+
+
+class ScriptHistoryItem(BaseModel):
+    video_id: str
+    style: ScriptStyle
+    script: str
+    created_at: datetime
 
 
 class VoiceProfile(BaseModel):

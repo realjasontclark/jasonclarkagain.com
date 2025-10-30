@@ -21,6 +21,8 @@ from .schemas import (
     OperationStatus,
     ScriptRequest,
     ScriptResponse,
+    ScriptHistoryItem,
+    ScriptStyle,
     TimelineRequest,
     TimelineResponse,
     VideoAnalysisStatus,
@@ -185,22 +187,28 @@ async def create_script(request: ScriptRequest) -> ScriptResponse:
     script = script_generation.generate_script(request, transcript_text)
 
     with session_scope() as session:
-        session.add(
-            ScriptRecord(video_id=request.video_id, style=request.style.value, script_text=script.script)
-        )
+        record = ScriptRecord(video_id=request.video_id, style=request.style.value, script_text=script.script)
+        session.add(record)
+        session.flush()
+        created_at = record.created_at
 
-    return script
+    return ScriptResponse(video_id=script.video_id, style=script.style, script=script.script, created_at=created_at)
 
 
-@app.get("/api/videos/{video_id}/scripts", response_model=list[ScriptResponse])
-async def list_scripts(video_id: str) -> list[ScriptResponse]:
-    scripts: list[ScriptResponse] = []
+@app.get("/api/videos/{video_id}/scripts", response_model=list[ScriptHistoryItem])
+async def list_scripts(video_id: str) -> list[ScriptHistoryItem]:
+    scripts: list[ScriptHistoryItem] = []
     with session_scope() as session:
         statement = select(ScriptRecord).where(ScriptRecord.video_id == video_id).order_by(ScriptRecord.created_at.desc())
         records = session.exec(statement).all()
         for record in records:
             scripts.append(
-                ScriptResponse(video_id=record.video_id, style=ScriptStyle(record.style), script=record.script_text)
+                ScriptHistoryItem(
+                    video_id=record.video_id,
+                    style=ScriptStyle(record.style),
+                    script=record.script_text,
+                    created_at=record.created_at,
+                )
             )
     return scripts
 

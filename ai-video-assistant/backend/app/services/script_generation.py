@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import datetime
 from functools import lru_cache
 from typing import Dict, List, Tuple
 
@@ -131,5 +132,5 @@ def generate_script(request: ScriptRequest, transcript_text: str) -> ScriptRespo
 
     script_text = "\n\n".join(script_sections) + extra
 
-    return ScriptResponse(video_id=request.video_id, style=request.style, script=script_text)
+    return ScriptResponse(video_id=request.video_id, style=request.style, script=script_text, created_at=datetime.utcnow())
 

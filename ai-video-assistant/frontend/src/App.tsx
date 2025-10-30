@@ -31,6 +31,7 @@ type ScriptHistoryItem = {
   video_id: string;
   style: string;
   script: string;
+  created_at: string;
 };
 
 type VoiceProfile = {
@@ -181,7 +182,7 @@ export default function App() {
   const generateScript = async () => {
     if (!videoId) return;
     setLoadingMessage("Crafting script with tone adjustments");
-    const { data } = await api.post<{ video_id: string; script: string }>("/scripts", {
+  const { data } = await api.post<{ video_id: string; script: string; style: string; created_at: string }>("/scripts", {
       video_id: videoId,
       style: scriptStyle,
       duration_seconds: 120,
@@ -447,7 +448,7 @@ export default function App() {
                 <option value="">Load previous script</option>
                 {scriptHistory.map((item, index) => (
                   <option key={`${item.video_id}-${index}`} value={String(index)}>
-                    {item.style} · #{scriptHistory.length - index}
+                    {item.style} · {formatTimestamp(item.created_at)}
                   </option>
                 ))}
               </select>
@@ -731,3 +732,14 @@ const historyBoxStyle: React.CSSProperties = {
   borderRadius: "12px",
   border: "1px solid rgba(148, 163, 184, 0.2)"
 };
+
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
