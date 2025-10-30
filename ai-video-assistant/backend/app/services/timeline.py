@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from typing import Dict, List
 
@@ -78,5 +80,31 @@ def build_timeline(request: TimelineRequest) -> TimelineResponse:
     with export_path.open("w", encoding="utf-8") as f:
         json.dump({"video_id": request.video_id, "items": [item.dict() for item in items]}, f, indent=2)
 
-    return TimelineResponse(video_id=request.video_id, items=items, export_path=str(export_path))
+    bundle_path = None
+    if request.bundle_assets:
+        asset_paths = [request.narration_path]
+        if request.music_path:
+            asset_paths.append(request.music_path)
+        asset_paths.extend(request.ambient_paths)
+
+        with TemporaryDirectory() as tmp_dir:
+            staging = Path(tmp_dir)
+            timeline_target = staging / export_path.name
+            shutil.copy2(export_path, timeline_target)
+
+            assets_dir = staging / "assets"
+            assets_dir.mkdir(exist_ok=True)
+
+            for asset in asset_paths:
+                source = Path(asset).resolve()
+                if not source.exists():
+                    continue
+                destination = assets_dir / source.name
+                shutil.copy2(source, destination)
+
+            archive_base = export_dir / f"{request.video_id}_bundle"
+            bundle_file = shutil.make_archive(str(archive_base), "zip", root_dir=staging)
+            bundle_path = Path(bundle_file)
+
+    return TimelineResponse(video_id=request.video_id, items=items, export_path=str(export_path), bundle_path=str(bundle_path) if bundle_path else None)
 

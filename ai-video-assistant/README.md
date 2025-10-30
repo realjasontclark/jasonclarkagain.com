@@ -33,7 +33,7 @@ Frontend dev server proxies API calls to `http://localhost:8000`.
 3. **Script Studio** builds tone-aware scripts (dry, dark sarcastic, laid back, southern chill, energetic, inspirational) with optional notes.
 4. **Voice Forge** registers custom voices using Coqui TTS embeddings; synthesizes narration from scripts.
 5. **Audio Atmospherics** crafts procedural background music and ambience layers (wind, car, plane, footsteps, train, rain).
-6. **Timeline Export** bundles a JSON timeline referencing assets for manual import to YouCut (drag assets, align per metadata).
+6. **Timeline Export** bundles a JSON timeline referencing assets for manual import to YouCut (drag assets, align per metadata) with optional zip package of narration/music/ambient layers.
 
 ## Open-Source Models & Assets
 

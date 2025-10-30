@@ -120,10 +120,12 @@ class TimelineRequest(BaseModel):
     music_path: Optional[str] = None
     ambient_paths: List[str] = Field(default_factory=list)
     beat_alignment: bool = Field(True, description="Align narration beats to detected scene changes")
+    bundle_assets: bool = Field(False, description="If true, export a zip bundle with timeline + audio assets")
 
 
 class TimelineResponse(BaseModel):
     video_id: str
     items: List[TimelineItem]
     export_path: str
+    bundle_path: Optional[str] = None
 

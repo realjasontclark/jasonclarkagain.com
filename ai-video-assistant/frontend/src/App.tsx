@@ -71,6 +71,8 @@ export default function App() {
   const [ambientDuration, setAmbientDuration] = useState<number>(30);
   const [ambientPaths, setAmbientPaths] = useState<string[]>([]);
   const [timelinePath, setTimelinePath] = useState<string>("");
+  const [bundlePath, setBundlePath] = useState<string>("");
+  const [bundleAssets, setBundleAssets] = useState<boolean>(true);
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
 
   const canGenerateScript = useMemo(() => analysis?.status === "completed", [analysis]);
@@ -124,6 +126,7 @@ export default function App() {
     setMusicPath("");
     setAmbientPaths([]);
     setTimelinePath("");
+    setBundlePath("");
     setLoadingMessage(null);
   };
 
@@ -204,9 +207,11 @@ export default function App() {
       narration_path: narrationPath,
       music_path: musicPath || null,
       ambient_paths: ambientPaths,
-      beat_alignment: true
+      beat_alignment: true,
+      bundle_assets: bundleAssets
     });
     setTimelinePath(data.export_path);
+    setBundlePath(data.bundle_path ?? "");
     setLoadingMessage(null);
   };
 
@@ -496,12 +501,30 @@ export default function App() {
             )
           }
         >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <input
+              id="bundle-assets"
+              type="checkbox"
+              checked={bundleAssets}
+              onChange={(event) => setBundleAssets(event.target.checked)}
+            />
+            <label htmlFor="bundle-assets" style={{ color: "#cbd5f5" }}>
+              Include narration/music/ambient assets in a zip bundle
+            </label>
+          </div>
           {timelinePath ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <p style={{ color: "#94a3b8" }}>Import the JSON into your YouCut project and replace media if needed.</p>
+              <p style={{ color: "#94a3b8" }}>
+                Import the JSON into YouCut, then drop the bundled audio layers. Video source stays in your library.
+              </p>
               <a href={`/api/files?path=${encodeURIComponent(timelinePath)}`} style={linkStyle}>
-                Download timeline package
+                Download timeline JSON
               </a>
+              {bundlePath && (
+                <a href={`/api/files?path=${encodeURIComponent(bundlePath)}`} style={linkStyle}>
+                  Download zip bundle
+                </a>
+              )}
             </div>
           ) : (
             <p style={{ color: "#94a3b8" }}>Generate narration, music, or ambient layers to enable export.</p>
@@ -513,7 +536,7 @@ export default function App() {
 }
 
 type VideoUploadResponse = { video_id: string; filename: string };
-type TimelineResponse = { export_path: string };
+type TimelineResponse = { export_path: string; bundle_path?: string };
 
 function StatusBadge({ status, message }: { status: string; message?: string | null }) {
   const colorMap: Record<string, string> = {
