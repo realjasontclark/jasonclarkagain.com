@@ -36,6 +36,7 @@ class VideoAnalysisStatus(BaseModel):
     video_id: str
     status: OperationStatus
     message: Optional[str] = None
+    filename: Optional[str] = None
     result: Optional[AnalysisResult] = None
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Film,
   Loader2,
@@ -16,6 +16,7 @@ type AnalysisStatus = {
   video_id: string;
   status: "pending" | "processing" | "completed" | "failed";
   message?: string | null;
+  filename?: string | null;
   result?: {
     summary?: string;
     keywords?: string[];
@@ -24,6 +25,12 @@ type AnalysisStatus = {
     audio_path?: string;
     scenes?: { scene_id: number; start_time: number; end_time: number; duration: number }[];
   } | null;
+};
+
+type ScriptHistoryItem = {
+  video_id: string;
+  style: string;
+  script: string;
 };
 
 type VoiceProfile = {
@@ -58,6 +65,7 @@ export default function App() {
   const [scriptStyle, setScriptStyle] = useState<string>(SCRIPT_STYLES[0].value);
   const [scriptText, setScriptText] = useState<string>("");
   const [scriptNotes, setScriptNotes] = useState<string>("");
+  const [scriptHistory, setScriptHistory] = useState<ScriptHistoryItem[]>([]);
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [voiceName, setVoiceName] = useState<string>("");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
@@ -74,6 +82,7 @@ export default function App() {
   const [bundlePath, setBundlePath] = useState<string>("");
   const [bundleAssets, setBundleAssets] = useState<boolean>(true);
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<AnalysisStatus[]>([]);
 
   const canGenerateScript = useMemo(() => analysis?.status === "completed", [analysis]);
 
@@ -98,18 +107,45 @@ export default function App() {
     };
   }, [videoId, analysis?.status]);
 
-  const refreshVoices = async () => {
+  const refreshVoices = useCallback(async () => {
     const { data } = await api.get<Record<string, VoiceProfile>>("/voices");
     const profiles = Object.values(data);
     setVoices(profiles);
-    if (profiles.length && !selectedVoice) {
-      setSelectedVoice(profiles[0].voice_id);
+    if (profiles.length) {
+      setSelectedVoice((prev) => prev || profiles[0].voice_id);
     }
-  };
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const { data } = await api.get<AnalysisStatus[]>("/videos");
+      setHistory(data);
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
+  const refreshScriptHistory = useCallback(async () => {
+    if (!videoId) {
+      setScriptHistory([]);
+      return;
+    }
+    try {
+      const { data } = await api.get<ScriptHistoryItem[]>(`/videos/${videoId}/scripts`);
+      setScriptHistory(data);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [videoId]);
 
   useEffect(() => {
     refreshVoices().catch(console.error);
-  }, []);
+    refreshHistory().catch(console.error);
+  }, [refreshVoices, refreshHistory]);
+
+  useEffect(() => {
+    refreshScriptHistory().catch(console.error);
+  }, [refreshScriptHistory]);
 
   const handleUpload = async (file: File) => {
     const form = new FormData();
@@ -128,6 +164,8 @@ export default function App() {
     setTimelinePath("");
     setBundlePath("");
     setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+    refreshScriptHistory().catch(console.error);
   };
 
   const startAnalysis = async () => {
@@ -137,6 +175,7 @@ export default function App() {
     const { data } = await api.post<AnalysisStatus>(`/videos/${videoId}/analyze`);
     setAnalysis(data);
     setLoadingMessage(null);
+    refreshHistory().catch(console.error);
   };
 
   const generateScript = async () => {
@@ -150,6 +189,8 @@ export default function App() {
     });
     setScriptText(data.script);
     setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+    refreshScriptHistory().catch(console.error);
   };
 
   const registerVoice = async () => {
@@ -213,6 +254,7 @@ export default function App() {
     setTimelinePath(data.export_path);
     setBundlePath(data.bundle_path ?? "");
     setLoadingMessage(null);
+    refreshHistory().catch(console.error);
   };
 
   return (
@@ -326,6 +368,37 @@ export default function App() {
                   ))}
                 </div>
               )}
+              {history.length > 0 && (
+                <div style={historyBoxStyle}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontSize: "1rem" }}>Recent sessions</h3>
+                    <button onClick={() => refreshHistory()} style={secondaryButtonStyle}>
+                      Refresh
+                    </button>
+                  </div>
+                  <ul style={{ listStyle: "none", display: "grid", gap: "8px" }}>
+                    {history.slice(0, 6).map((item) => (
+                      <li
+                        key={item.video_id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "8px 12px",
+                          borderRadius: "10px",
+                          background: "rgba(15, 23, 42, 0.6)"
+                        }}
+                      >
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontWeight: 600 }}>{item.filename ?? item.video_id}</span>
+                          <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}>{item.message ?? ""}</span>
+                        </div>
+                        <StatusBadge status={item.status} message={undefined} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
             <p style={{ color: "#94a3b8" }}>Upload a video to unlock analysis insights.</p>
@@ -357,6 +430,28 @@ export default function App() {
               placeholder="Optional notes (calls-to-action, sponsors, language)"
               style={{ ...inputStyle, flex: 1, minWidth: "240px" }}
             />
+            {scriptHistory.length > 0 && (
+              <select
+                value=""
+                onChange={(event) => {
+                  const index = parseInt(event.target.value, 10);
+                  if (Number.isNaN(index)) return;
+                  const match = scriptHistory[index];
+                  if (match) {
+                    setScriptStyle(match.style);
+                    setScriptText(match.script);
+                  }
+                }}
+                style={inputStyle}
+              >
+                <option value="">Load previous script</option>
+                {scriptHistory.map((item, index) => (
+                  <option key={`${item.video_id}-${index}`} value={String(index)}>
+                    {item.style} · #{scriptHistory.length - index}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <textarea
             value={scriptText}
@@ -626,4 +721,13 @@ const chipStyle: React.CSSProperties = {
   background: "rgba(59, 130, 246, 0.2)",
   color: "#93c5fd",
   fontSize: "0.85rem"
+};
+
+const historyBoxStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "12px",
+  padding: "16px",
+  background: "rgba(30, 41, 59, 0.5)",
+  borderRadius: "12px",
+  border: "1px solid rgba(148, 163, 184, 0.2)"
 };

@@ -14,3 +14,4 @@ TTS>=0.22.0
 scipy>=1.11.0
 pydantic>=2.5.0
 python-dotenv>=1.0.1
+sqlmodel>=0.0.16

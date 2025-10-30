@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import Dict
 
@@ -26,6 +28,10 @@ from .schemas import (
     VoiceProfile,
     VoiceSynthesisRequest,
 )
+from sqlmodel import select
+
+from .database import init_db, session_scope
+from .models import ScriptRecord, VideoRecord
 from .services import audio_generation, script_generation, timeline, transcription, video_analysis, voice_clone
 from .utils.file_utils import generate_id, save_upload, secure_filename
 
@@ -35,15 +41,38 @@ app = FastAPI(title="AI Video Content Assistant", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 config.ensure_directories()
+init_db()
 
 ANALYSIS_CACHE: Dict[str, VideoAnalysisStatus] = {}
 
 app.mount("/assets", StaticFiles(directory=config.DATA_DIR), name="assets")
 
 
-def _update_status(video_id: str, status: OperationStatus, message: str | None = None, result: dict | None = None) -> None:
+def _status_from_record(record: VideoRecord) -> VideoAnalysisStatus:
+    result = json.loads(record.result_json) if record.result_json else None
     result_model = AnalysisResult(**result) if result else None
-    ANALYSIS_CACHE[video_id] = VideoAnalysisStatus(video_id=video_id, status=status, message=message, result=result_model)
+    return VideoAnalysisStatus(
+        video_id=record.video_id,
+        status=OperationStatus(record.status),
+        message=record.message,
+        filename=record.filename,
+        result=result_model,
+    )
+
+
+def _update_status(video_id: str, status: OperationStatus, message: str | None = None, result: dict | None = None) -> None:
+    record: VideoRecord
+    with session_scope() as session:
+        record = session.get(VideoRecord, video_id)
+        if record is None:
+            record = VideoRecord(video_id=video_id, filename="", status=status.value)
+        record.status = status.value
+        record.message = message
+        record.result_json = json.dumps(result) if result else None
+        record.updated_at = datetime.utcnow()
+        session.add(record)
+
+    ANALYSIS_CACHE[video_id] = _status_from_record(record)
 
 
 def _run_analysis(video_id: str) -> None:
@@ -91,6 +120,17 @@ async def upload_video(file: UploadFile = File(...)) -> VideoUploadResponse:
     save_upload(temp_path, destination)
 
     _update_status(video_id, OperationStatus.pending, "Uploaded and awaiting analysis")
+
+    with session_scope() as session:
+        record = session.get(VideoRecord, video_id)
+        if record is None:
+            record = VideoRecord(video_id=video_id, filename=filename)
+        record.filename = filename
+        record.updated_at = datetime.utcnow()
+        session.add(record)
+
+    ANALYSIS_CACHE[video_id] = _status_from_record(record)
+
     return VideoUploadResponse(video_id=video_id, filename=filename)
 
 
@@ -107,8 +147,29 @@ async def analyze_video_endpoint(video_id: str, background_tasks: BackgroundTask
 async def get_analysis_status(video_id: str) -> VideoAnalysisStatus:
     status = ANALYSIS_CACHE.get(video_id)
     if not status:
-        raise HTTPException(status_code=404, detail="No analysis data available")
+        with session_scope() as session:
+            record = session.get(VideoRecord, video_id)
+            if not record or record.status == OperationStatus.pending.value and not record.result_json:
+                raise HTTPException(status_code=404, detail="No analysis data available")
+            status = _status_from_record(record)
+            ANALYSIS_CACHE[video_id] = status
     return status
+
+
+@app.get("/api/videos", response_model=list[VideoAnalysisStatus])
+async def list_videos() -> list[VideoAnalysisStatus]:
+    statuses: list[VideoAnalysisStatus] = []
+    with session_scope() as session:
+        statement = select(VideoRecord).order_by(VideoRecord.updated_at.desc())
+        records = session.exec(statement).all()
+        for record in records:
+            try:
+                statuses.append(_status_from_record(record))
+            except ValueError:
+                statuses.append(
+                    VideoAnalysisStatus(video_id=record.video_id, status=OperationStatus.pending, message=record.message)
+                )
+    return statuses
 
 
 @app.post("/api/scripts", response_model=ScriptResponse)
@@ -122,7 +183,26 @@ async def create_script(request: ScriptRequest) -> ScriptResponse:
         raise HTTPException(status_code=500, detail="Transcript missing from analysis result")
 
     script = script_generation.generate_script(request, transcript_text)
+
+    with session_scope() as session:
+        session.add(
+            ScriptRecord(video_id=request.video_id, style=request.style.value, script_text=script.script)
+        )
+
     return script
+
+
+@app.get("/api/videos/{video_id}/scripts", response_model=list[ScriptResponse])
+async def list_scripts(video_id: str) -> list[ScriptResponse]:
+    scripts: list[ScriptResponse] = []
+    with session_scope() as session:
+        statement = select(ScriptRecord).where(ScriptRecord.video_id == video_id).order_by(ScriptRecord.created_at.desc())
+        records = session.exec(statement).all()
+        for record in records:
+            scripts.append(
+                ScriptResponse(video_id=record.video_id, style=ScriptStyle(record.style), script=record.script_text)
+            )
+    return scripts
 
 
 @app.post("/api/voices", response_model=VoiceProfile)

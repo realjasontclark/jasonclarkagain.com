@@ -8,6 +8,7 @@ VIDEO_DIR = DATA_DIR / "videos"
 ANALYSIS_DIR = DATA_DIR / "analysis"
 VOICE_PROFILE_DIR = DATA_DIR / "voices"
 GENERATED_AUDIO_DIR = DATA_DIR / "generated_audio"
+DB_PATH = DATA_DIR / "app.db"
 
 
 def ensure_directories() -> None:
