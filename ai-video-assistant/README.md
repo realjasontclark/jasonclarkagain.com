@@ -30,7 +30,7 @@ Frontend dev server proxies API calls to `http://localhost:8000`.
 
 1. **Upload** video saved into `data/videos/`.
 2. **Analyze** via MoviePy metadata, PySceneDetect scene cuts, Faster-Whisper transcription, keyword extraction, summary.
-3. **Script Studio** builds tone-aware scripts (dry, dark sarcastic, laid back, southern chill, energetic, inspirational) with optional notes.
+3. **Script Studio** builds tone-aware scripts (dry, dark sarcastic, laid back, southern chill, energetic, inspirational) with optional notes, estimated runtime, and token counts.
 4. **Script Archive** keeps every generated draft in SQLite with timestamps for quick recall/reuse from the UI.
 5. **Voice Forge** registers custom voices using Coqui TTS embeddings; synthesizes narration from scripts.
 6. **Audio Atmospherics** crafts procedural background music and ambience layers (wind, car, plane, footsteps, train, rain).

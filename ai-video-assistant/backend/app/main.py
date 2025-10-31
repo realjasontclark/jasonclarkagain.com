@@ -34,7 +34,7 @@ from sqlmodel import select
 
 from .database import init_db, session_scope
 from .models import ScriptRecord, VideoRecord
-from .services import audio_generation, script_generation, timeline, transcription, video_analysis, voice_clone
+from .services import audio_generation, metadata, script_generation, timeline, transcription, video_analysis, voice_clone
 from .utils.file_utils import generate_id, save_upload, secure_filename
 
 
@@ -185,14 +185,23 @@ async def create_script(request: ScriptRequest) -> ScriptResponse:
         raise HTTPException(status_code=500, detail="Transcript missing from analysis result")
 
     script = script_generation.generate_script(request, transcript_text)
+    token_count, est_duration = metadata.estimate_timing(script.script)
+    script = script.model_copy(update={"token_count": token_count, "duration_seconds": est_duration})
 
     with session_scope() as session:
-        record = ScriptRecord(video_id=request.video_id, style=request.style.value, script_text=script.script)
+        record = ScriptRecord(
+            video_id=request.video_id,
+            style=request.style.value,
+            script_text=script.script,
+            token_count=token_count,
+            duration_seconds=est_duration,
+            summary=script.summary,
+        )
         session.add(record)
         session.flush()
         created_at = record.created_at
 
-    return ScriptResponse(video_id=script.video_id, style=script.style, script=script.script, created_at=created_at)
+    return script.model_copy(update={"created_at": created_at})
 
 
 @app.get("/api/videos/{video_id}/scripts", response_model=list[ScriptHistoryItem])
@@ -208,6 +217,9 @@ async def list_scripts(video_id: str) -> list[ScriptHistoryItem]:
                     style=ScriptStyle(record.style),
                     script=record.script_text,
                     created_at=record.created_at,
+                    token_count=record.token_count,
+                    duration_seconds=record.duration_seconds,
+                    summary=record.summary,
                 )
             )
     return scripts

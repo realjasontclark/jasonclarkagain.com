@@ -62,6 +62,9 @@ class ScriptResponse(BaseModel):
     style: ScriptStyle
     script: str
     created_at: datetime
+    token_count: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    summary: Optional[str] = None
 
 
 class ScriptHistoryItem(BaseModel):
@@ -69,6 +72,9 @@ class ScriptHistoryItem(BaseModel):
     style: ScriptStyle
     script: str
     created_at: datetime
+    token_count: Optional[int] = None
+    duration_seconds: Optional[int] = None
+    summary: Optional[str] = None
 
 
 class VoiceProfile(BaseModel):

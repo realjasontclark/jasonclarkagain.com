@@ -24,5 +24,8 @@ class ScriptRecord(SQLModel, table=True):
     video_id: str = Field(index=True)
     style: str
     script_text: str = Field(sa_column=Column(Text))
+    token_count: Optional[int] = Field(default=None)
+    duration_seconds: Optional[int] = Field(default=None)
+    summary: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 

@@ -113,10 +113,10 @@ def generate_script(request: ScriptRequest, transcript_text: str) -> ScriptRespo
     target_points = max(3, min(8, math.ceil(minutes * 3)))
 
     try:
-        summary = _summarize_text(transcript_text)
+        summary_text = _summarize_text(transcript_text)
     except Exception:  # pragma: no cover - fallback in constrained environments
-        summary = transcript_text
-    key_points = _extract_key_points(summary, target_points)
+        summary_text = transcript_text
+    key_points = _extract_key_points(summary_text, target_points)
     style_config = STYLE_CONFIG.get(request.style, STYLE_CONFIG[ScriptStyle.dry])
 
     stylized_points = [f"- {_stylize_line(point, request.style)}" for point in key_points]
@@ -132,5 +132,11 @@ def generate_script(request: ScriptRequest, transcript_text: str) -> ScriptRespo
 
     script_text = "\n\n".join(script_sections) + extra
 
-    return ScriptResponse(video_id=request.video_id, style=request.style, script=script_text, created_at=datetime.utcnow())
+    return ScriptResponse(
+        video_id=request.video_id,
+        style=request.style,
+        script=script_text,
+        created_at=datetime.utcnow(),
+        summary=summary_text,
+    )
 

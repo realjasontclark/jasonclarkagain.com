@@ -67,6 +67,9 @@ export default function App() {
   const [scriptText, setScriptText] = useState<string>("");
   const [scriptNotes, setScriptNotes] = useState<string>("");
   const [scriptHistory, setScriptHistory] = useState<ScriptHistoryItem[]>([]);
+  const [scriptTokens, setScriptTokens] = useState<number | null>(null);
+  const [scriptDuration, setScriptDuration] = useState<number | null>(null);
+  const [scriptSummary, setScriptSummary] = useState<string>("");
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [voiceName, setVoiceName] = useState<string>("");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
@@ -148,6 +151,21 @@ export default function App() {
     refreshScriptHistory().catch(console.error);
   }, [refreshScriptHistory]);
 
+  useEffect(() => {
+    if (!scriptText.trim()) {
+      setScriptTokens(null);
+      setScriptDuration(null);
+      setScriptSummary("");
+      return;
+    }
+
+    const words = scriptText.trim().split(/\s+/).length;
+    const estimatedTokens = Math.round(words * 1.3);
+    const estimatedDuration = Math.max(30, Math.round((words / 150) * 60));
+    setScriptTokens(estimatedTokens);
+    setScriptDuration(estimatedDuration);
+  }, [scriptText]);
+
   const handleUpload = async (file: File) => {
     const form = new FormData();
     form.append("file", file);
@@ -182,13 +200,16 @@ export default function App() {
   const generateScript = async () => {
     if (!videoId) return;
     setLoadingMessage("Crafting script with tone adjustments");
-  const { data } = await api.post<{ video_id: string; script: string; style: string; created_at: string }>("/scripts", {
+    const { data } = await api.post<ScriptResponsePayload>("/scripts", {
       video_id: videoId,
       style: scriptStyle,
       duration_seconds: 120,
       extra_notes: scriptNotes
     });
     setScriptText(data.script);
+    setScriptTokens(data.token_count ?? null);
+    setScriptDuration(data.duration_seconds ?? null);
+    setScriptSummary(data.summary ?? "");
     setLoadingMessage(null);
     refreshHistory().catch(console.error);
     refreshScriptHistory().catch(console.error);
@@ -441,6 +462,9 @@ export default function App() {
                   if (match) {
                     setScriptStyle(match.style);
                     setScriptText(match.script);
+                    setScriptTokens(match.token_count ?? null);
+                    setScriptDuration(match.duration_seconds ?? null);
+                    setScriptSummary(match.summary ?? "");
                   }
                 }}
                 style={inputStyle}
@@ -448,7 +472,7 @@ export default function App() {
                 <option value="">Load previous script</option>
                 {scriptHistory.map((item, index) => (
                   <option key={`${item.video_id}-${index}`} value={String(index)}>
-                    {item.style} · {formatTimestamp(item.created_at)}
+                    {item.style} · {formatDuration(item.duration_seconds)} · {formatTimestamp(item.created_at)}
                   </option>
                 ))}
               </select>
@@ -461,6 +485,15 @@ export default function App() {
             rows={10}
             style={{ ...inputStyle, resize: "vertical" }}
           />
+          {(scriptTokens || scriptDuration || scriptSummary) && (
+            <div style={metaBoxStyle}>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                {scriptDuration && <span>Est. runtime: {formatDuration(scriptDuration)}</span>}
+                {scriptTokens && <span>Tokens ≈ {scriptTokens}</span>}
+              </div>
+              {scriptSummary && <p style={{ color: "#cbd5f5", fontSize: "0.9rem" }}>{scriptSummary}</p>}
+            </div>
+          )}
         </Card>
 
         <Card
@@ -743,3 +776,23 @@ function formatTimestamp(timestamp: string): string {
     minute: "2-digit"
   });
 }
+
+function formatDuration(seconds?: number | null): string {
+  if (!seconds || Number.isNaN(seconds)) return "--";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins <= 0) {
+    return `${secs}s`;
+  }
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+}
+
+const metaBoxStyle: React.CSSProperties = {
+  marginTop: "12px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  background: "rgba(15, 23, 42, 0.6)",
+  display: "grid",
+  gap: "8px"
+};
