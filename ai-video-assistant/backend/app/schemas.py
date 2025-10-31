@@ -93,6 +93,15 @@ class VoiceSynthesisRequest(BaseModel):
     speed: float = Field(1.0, ge=0.5, le=1.5)
 
 
+class VoiceSummary(BaseModel):
+    voice_id: str
+    display_name: str
+    sample_path: str
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    synth_count: int = 0
+
+
 class AudioMood(str, Enum):
     calm = "calm"
     uplifting = "uplifting"

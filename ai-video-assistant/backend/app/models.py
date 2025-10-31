@@ -29,3 +29,12 @@ class ScriptRecord(SQLModel, table=True):
     summary: Optional[str] = Field(default=None, sa_column=Column(Text))
     created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
+
+class VoiceRecord(SQLModel, table=True):
+    voice_id: str = Field(primary_key=True, index=True)
+    display_name: str
+    sample_path: str
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    last_used_at: Optional[datetime] = None
+    synth_count: int = Field(default=0, nullable=False)
+

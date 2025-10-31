@@ -32,9 +32,31 @@ type ScriptHistoryItem = {
   style: string;
   script: string;
   created_at: string;
+  token_count?: number;
+  duration_seconds?: number;
+  summary?: string;
 };
 
-type VoiceProfile = {
+type VoiceSummary = {
+  voice_id: string;
+  display_name: string;
+  sample_path: string;
+  created_at: string;
+  last_used_at?: string | null;
+  synth_count: number;
+};
+
+type ScriptResponsePayload = {
+  video_id: string;
+  script: string;
+  style: string;
+  created_at: string;
+  token_count?: number;
+  duration_seconds?: number;
+  summary?: string;
+};
+
+type VoiceProfileResponse = {
   voice_id: string;
   display_name: string;
   sample_path: string;
@@ -70,7 +92,7 @@ export default function App() {
   const [scriptTokens, setScriptTokens] = useState<number | null>(null);
   const [scriptDuration, setScriptDuration] = useState<number | null>(null);
   const [scriptSummary, setScriptSummary] = useState<string>("");
-  const [voices, setVoices] = useState<VoiceProfile[]>([]);
+  const [voices, setVoices] = useState<VoiceSummary[]>([]);
   const [voiceName, setVoiceName] = useState<string>("");
   const [voiceSample, setVoiceSample] = useState<File | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<string>("");
@@ -89,6 +111,10 @@ export default function App() {
   const [history, setHistory] = useState<AnalysisStatus[]>([]);
 
   const canGenerateScript = useMemo(() => analysis?.status === "completed", [analysis]);
+  const activeVoice = useMemo(
+    () => voices.find((voice) => voice.voice_id === selectedVoice) ?? null,
+    [voices, selectedVoice]
+  );
 
   useEffect(() => {
     let interval: number | undefined;
@@ -112,12 +138,18 @@ export default function App() {
   }, [videoId, analysis?.status]);
 
   const refreshVoices = useCallback(async () => {
-    const { data } = await api.get<Record<string, VoiceProfile>>("/voices");
-    const profiles = Object.values(data);
-    setVoices(profiles);
-    if (profiles.length) {
-      setSelectedVoice((prev) => prev || profiles[0].voice_id);
+    const { data } = await api.get<VoiceSummary[]>("/voices");
+    setVoices(data);
+    if (!data.length) {
+      setSelectedVoice("");
+      return;
     }
+    setSelectedVoice((prev) => {
+      if (prev && data.some((item) => item.voice_id === prev)) {
+        return prev;
+      }
+      return data[0].voice_id;
+    });
   }, []);
 
   const refreshHistory = useCallback(async () => {
@@ -221,10 +253,13 @@ export default function App() {
     form.append("display_name", voiceName.trim());
     form.append("sample", voiceSample);
     setLoadingMessage("Extracting voice fingerprint");
-    await api.post("/voices", form, { headers: { "Content-Type": "multipart/form-data" } });
+    const { data } = await api.post<VoiceProfileResponse>("/voices", form, {
+      headers: { "Content-Type": "multipart/form-data" }
+    });
     setVoiceName("");
     setVoiceSample(null);
     await refreshVoices();
+    setSelectedVoice(data.voice_id);
     setLoadingMessage(null);
   };
 
@@ -539,6 +574,15 @@ export default function App() {
                   </option>
                 ))}
               </select>
+              {activeVoice && (
+                <div style={voiceMetaStyle}>
+                  <span>Created: {formatTimestamp(activeVoice.created_at)}</span>
+                  <span>
+                    Last used: {activeVoice.last_used_at ? formatTimestamp(activeVoice.last_used_at) : "Never"}
+                  </span>
+                  <span>Renders: {activeVoice.synth_count}</span>
+                </div>
+              )}
             </div>
             {narrationPath && (
               <a href={`/api/files?path=${encodeURIComponent(narrationPath)}`} style={linkStyle}>
@@ -795,4 +839,13 @@ const metaBoxStyle: React.CSSProperties = {
   background: "rgba(15, 23, 42, 0.6)",
   display: "grid",
   gap: "8px"
+};
+
+const voiceMetaStyle: React.CSSProperties = {
+  marginTop: "8px",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "12px",
+  fontSize: "0.85rem",
+  color: "#94a3b8"
 };

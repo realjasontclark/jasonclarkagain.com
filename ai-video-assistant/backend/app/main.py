@@ -19,21 +19,22 @@ from .schemas import (
     AnalysisResult,
     MusicGenerationRequest,
     OperationStatus,
+    ScriptHistoryItem,
     ScriptRequest,
     ScriptResponse,
-    ScriptHistoryItem,
     ScriptStyle,
     TimelineRequest,
     TimelineResponse,
     VideoAnalysisStatus,
     VideoUploadResponse,
     VoiceProfile,
+    VoiceSummary,
     VoiceSynthesisRequest,
 )
 from sqlmodel import select
 
 from .database import init_db, session_scope
-from .models import ScriptRecord, VideoRecord
+from .models import ScriptRecord, VideoRecord, VoiceRecord
 from .services import audio_generation, metadata, script_generation, timeline, transcription, video_analysis, voice_clone
 from .utils.file_utils import generate_id, save_upload, secure_filename
 
@@ -235,17 +236,65 @@ async def register_voice(
         buffer.write(await sample.read())
 
     profile = voice_clone.create_voice_profile(display_name, temp_path)
+    with session_scope() as session:
+        record = session.get(VoiceRecord, profile.voice_id)
+        if record is None:
+            record = VoiceRecord(
+                voice_id=profile.voice_id,
+                display_name=display_name,
+                sample_path=profile.sample_path,
+            )
+        else:
+            record.display_name = display_name
+            record.sample_path = profile.sample_path
+        session.add(record)
     return profile
 
 
-@app.get("/api/voices")
-async def list_voices() -> Dict[str, Dict]:
-    return voice_clone.list_voice_profiles()
+@app.get("/api/voices", response_model=list[VoiceSummary])
+async def list_voices() -> list[VoiceSummary]:
+    raw_profiles = voice_clone.list_voice_profiles()
+    summaries: list[VoiceSummary] = []
+    with session_scope() as session:
+        for voice_id, data in raw_profiles.items():
+            record = session.get(VoiceRecord, voice_id)
+            if record is None:
+                record = VoiceRecord(
+                    voice_id=voice_id,
+                    display_name=data.get("display_name", voice_id),
+                    sample_path=data.get("sample_path", ""),
+                )
+                session.add(record)
+                session.flush()
+            summaries.append(
+                VoiceSummary(
+                    voice_id=voice_id,
+                    display_name=record.display_name,
+                    sample_path=record.sample_path,
+                    created_at=record.created_at,
+                    last_used_at=record.last_used_at,
+                    synth_count=record.synth_count,
+                )
+            )
+    return summaries
 
 
 @app.post("/api/voices/synthesize")
 async def synthesize_voice_endpoint(request: VoiceSynthesisRequest) -> Dict[str, str]:
     output_path = voice_clone.synthesize_voice(request.voice_id, request.text, request.speed)
+    with session_scope() as session:
+        record = session.get(VoiceRecord, request.voice_id)
+        if record is None:
+            profiles = voice_clone.list_voice_profiles()
+            profile_data = profiles.get(request.voice_id, {})
+            record = VoiceRecord(
+                voice_id=request.voice_id,
+                display_name=profile_data.get("display_name", request.voice_id),
+                sample_path=profile_data.get("sample_path", ""),
+            )
+        record.last_used_at = datetime.utcnow()
+        record.synth_count = (record.synth_count or 0) + 1
+        session.add(record)
     return {"path": str(output_path)}
 
 
