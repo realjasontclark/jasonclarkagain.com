@@ -1,0 +1,17 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+moviepy>=1.0.3
+opencv-python-headless>=4.9.0.80
+scenedetect>=0.6.4
+faster-whisper>=0.10.0
+transformers>=4.40.0
+torch>=2.2.0
+numpy>=1.24.0
+soundfile>=0.12.1
+librosa>=0.10.1
+TTS>=0.22.0
+scipy>=1.11.0
+pydantic>=2.5.0
+python-dotenv>=1.0.1
+sqlmodel>=0.0.16

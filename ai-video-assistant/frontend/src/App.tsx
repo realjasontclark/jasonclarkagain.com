@@ -1,0 +1,851 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Film,
+  Loader2,
+  Mic2,
+  Music3,
+  ScriptText,
+  Settings2,
+  Waves,
+  Wand2
+} from "lucide-react";
+import api from "./hooks/useApi";
+import Card from "./components/Card";
+
+type AnalysisStatus = {
+  video_id: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  message?: string | null;
+  filename?: string | null;
+  result?: {
+    summary?: string;
+    keywords?: string[];
+    transcript?: string;
+    transcript_path?: string;
+    audio_path?: string;
+    scenes?: { scene_id: number; start_time: number; end_time: number; duration: number }[];
+  } | null;
+};
+
+type ScriptHistoryItem = {
+  video_id: string;
+  style: string;
+  script: string;
+  created_at: string;
+  token_count?: number;
+  duration_seconds?: number;
+  summary?: string;
+};
+
+type VoiceSummary = {
+  voice_id: string;
+  display_name: string;
+  sample_path: string;
+  created_at: string;
+  last_used_at?: string | null;
+  synth_count: number;
+};
+
+type ScriptResponsePayload = {
+  video_id: string;
+  script: string;
+  style: string;
+  created_at: string;
+  token_count?: number;
+  duration_seconds?: number;
+  summary?: string;
+};
+
+type VoiceProfileResponse = {
+  voice_id: string;
+  display_name: string;
+  sample_path: string;
+};
+
+const SCRIPT_STYLES = [
+  { value: "dry", label: "Dry" },
+  { value: "dark_sarcastic", label: "Dark Sarcastic" },
+  { value: "laid_back", label: "Laid Back" },
+  { value: "southern_chill", label: "Southern Chill" },
+  { value: "energetic", label: "Energetic" },
+  { value: "inspirational", label: "Inspirational" }
+];
+
+const AMBIENT_TYPES = [
+  "wind",
+  "car",
+  "plane",
+  "footsteps",
+  "train",
+  "rain"
+] as const;
+
+export default function App() {
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [uploadedName, setUploadedName] = useState<string>("");
+  const [analysis, setAnalysis] = useState<AnalysisStatus | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [scriptStyle, setScriptStyle] = useState<string>(SCRIPT_STYLES[0].value);
+  const [scriptText, setScriptText] = useState<string>("");
+  const [scriptNotes, setScriptNotes] = useState<string>("");
+  const [scriptHistory, setScriptHistory] = useState<ScriptHistoryItem[]>([]);
+  const [scriptTokens, setScriptTokens] = useState<number | null>(null);
+  const [scriptDuration, setScriptDuration] = useState<number | null>(null);
+  const [scriptSummary, setScriptSummary] = useState<string>("");
+  const [voices, setVoices] = useState<VoiceSummary[]>([]);
+  const [voiceName, setVoiceName] = useState<string>("");
+  const [voiceSample, setVoiceSample] = useState<File | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
+  const [narrationPath, setNarrationPath] = useState<string>("");
+  const [musicPrompt, setMusicPrompt] = useState<string>("warm gentle synth pad");
+  const [musicMood, setMusicMood] = useState<string>("calm");
+  const [musicDuration, setMusicDuration] = useState<number>(45);
+  const [musicPath, setMusicPath] = useState<string>("");
+  const [ambientType, setAmbientType] = useState<typeof AMBIENT_TYPES[number]>("wind");
+  const [ambientDuration, setAmbientDuration] = useState<number>(30);
+  const [ambientPaths, setAmbientPaths] = useState<string[]>([]);
+  const [timelinePath, setTimelinePath] = useState<string>("");
+  const [bundlePath, setBundlePath] = useState<string>("");
+  const [bundleAssets, setBundleAssets] = useState<boolean>(true);
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<AnalysisStatus[]>([]);
+
+  const canGenerateScript = useMemo(() => analysis?.status === "completed", [analysis]);
+  const activeVoice = useMemo(
+    () => voices.find((voice) => voice.voice_id === selectedVoice) ?? null,
+    [voices, selectedVoice]
+  );
+
+  useEffect(() => {
+    let interval: number | undefined;
+    if (videoId && (analysis?.status === "pending" || analysis?.status === "processing")) {
+      interval = window.setInterval(async () => {
+        try {
+          const { data } = await api.get<AnalysisStatus>(`/videos/${videoId}/analysis`);
+          setAnalysis(data);
+          if (data.status === "completed" || data.status === "failed") {
+            setIsAnalyzing(false);
+            if (interval) window.clearInterval(interval);
+          }
+        } catch (error) {
+          console.error(error);
+        }
+      }, 5000);
+    }
+    return () => {
+      if (interval) window.clearInterval(interval);
+    };
+  }, [videoId, analysis?.status]);
+
+  const refreshVoices = useCallback(async () => {
+    const { data } = await api.get<VoiceSummary[]>("/voices");
+    setVoices(data);
+    if (!data.length) {
+      setSelectedVoice("");
+      return;
+    }
+    setSelectedVoice((prev) => {
+      if (prev && data.some((item) => item.voice_id === prev)) {
+        return prev;
+      }
+      return data[0].voice_id;
+    });
+  }, []);
+
+  const refreshHistory = useCallback(async () => {
+    try {
+      const { data } = await api.get<AnalysisStatus[]>("/videos");
+      setHistory(data);
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
+  const refreshScriptHistory = useCallback(async () => {
+    if (!videoId) {
+      setScriptHistory([]);
+      return;
+    }
+    try {
+      const { data } = await api.get<ScriptHistoryItem[]>(`/videos/${videoId}/scripts`);
+      setScriptHistory(data);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [videoId]);
+
+  useEffect(() => {
+    refreshVoices().catch(console.error);
+    refreshHistory().catch(console.error);
+  }, [refreshVoices, refreshHistory]);
+
+  useEffect(() => {
+    refreshScriptHistory().catch(console.error);
+  }, [refreshScriptHistory]);
+
+  useEffect(() => {
+    if (!scriptText.trim()) {
+      setScriptTokens(null);
+      setScriptDuration(null);
+      setScriptSummary("");
+      return;
+    }
+
+    const words = scriptText.trim().split(/\s+/).length;
+    const estimatedTokens = Math.round(words * 1.3);
+    const estimatedDuration = Math.max(30, Math.round((words / 150) * 60));
+    setScriptTokens(estimatedTokens);
+    setScriptDuration(estimatedDuration);
+  }, [scriptText]);
+
+  const handleUpload = async (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    setLoadingMessage("Uploading video");
+    const { data } = await api.post<VideoUploadResponse>("/videos", form, {
+      headers: { "Content-Type": "multipart/form-data" }
+    });
+    setVideoId(data.video_id);
+    setUploadedName(data.filename);
+    setAnalysis({ video_id: data.video_id, status: "pending", message: "Ready for analysis" });
+    setScriptText("");
+    setNarrationPath("");
+    setMusicPath("");
+    setAmbientPaths([]);
+    setTimelinePath("");
+    setBundlePath("");
+    setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+    refreshScriptHistory().catch(console.error);
+  };
+
+  const startAnalysis = async () => {
+    if (!videoId) return;
+    setIsAnalyzing(true);
+    setLoadingMessage("Analyzing video (scene cuts, transcription, keywords)");
+    const { data } = await api.post<AnalysisStatus>(`/videos/${videoId}/analyze`);
+    setAnalysis(data);
+    setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+  };
+
+  const generateScript = async () => {
+    if (!videoId) return;
+    setLoadingMessage("Crafting script with tone adjustments");
+    const { data } = await api.post<ScriptResponsePayload>("/scripts", {
+      video_id: videoId,
+      style: scriptStyle,
+      duration_seconds: 120,
+      extra_notes: scriptNotes
+    });
+    setScriptText(data.script);
+    setScriptTokens(data.token_count ?? null);
+    setScriptDuration(data.duration_seconds ?? null);
+    setScriptSummary(data.summary ?? "");
+    setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+    refreshScriptHistory().catch(console.error);
+  };
+
+  const registerVoice = async () => {
+    if (!voiceSample || !voiceName.trim()) return;
+    const form = new FormData();
+    form.append("display_name", voiceName.trim());
+    form.append("sample", voiceSample);
+    setLoadingMessage("Extracting voice fingerprint");
+    const { data } = await api.post<VoiceProfileResponse>("/voices", form, {
+      headers: { "Content-Type": "multipart/form-data" }
+    });
+    setVoiceName("");
+    setVoiceSample(null);
+    await refreshVoices();
+    setSelectedVoice(data.voice_id);
+    setLoadingMessage(null);
+  };
+
+  const synthesizeVoice = async () => {
+    if (!selectedVoice || !scriptText.trim()) return;
+    setLoadingMessage("Rendering narration with cloned voice");
+    const { data } = await api.post<{ path: string }>("/voices/synthesize", {
+      voice_id: selectedVoice,
+      text: scriptText,
+      speed: 1.0
+    });
+    setNarrationPath(data.path);
+    setLoadingMessage(null);
+  };
+
+  const generateMusicTrack = async () => {
+    setLoadingMessage("Designing background music bed");
+    const { data } = await api.post<{ path: string }>("/audio/music", {
+      prompt: musicPrompt,
+      mood: musicMood,
+      duration_seconds: musicDuration
+    });
+    setMusicPath(data.path);
+    setLoadingMessage(null);
+  };
+
+  const generateAmbientLayer = async () => {
+    setLoadingMessage("Generating ambient layer");
+    const { data } = await api.post<{ path: string }>("/audio/ambient", {
+      ambient_type: ambientType,
+      duration_seconds: ambientDuration,
+      intensity: 0.7
+    });
+    setAmbientPaths((prev) => [...prev, data.path]);
+    setLoadingMessage(null);
+  };
+
+  const buildTimeline = async () => {
+    if (!videoId || !narrationPath) return;
+    setLoadingMessage("Packing assets for YouCut alignment");
+    const { data } = await api.post<TimelineResponse>("/timeline", {
+      video_id: videoId,
+      narration_path: narrationPath,
+      music_path: musicPath || null,
+      ambient_paths: ambientPaths,
+      beat_alignment: true,
+      bundle_assets: bundleAssets
+    });
+    setTimelinePath(data.export_path);
+    setBundlePath(data.bundle_path ?? "");
+    setLoadingMessage(null);
+    refreshHistory().catch(console.error);
+  };
+
+  return (
+    <div
+      style={{
+        maxWidth: "1200px",
+        margin: "0 auto",
+        padding: "48px 24px 96px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "24px"
+      }}
+    >
+      <header style={{ textAlign: "center", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <h1 style={{ fontSize: "2.4rem", fontWeight: 700 }}>Creator Forge · AI Video Companion</h1>
+        <p style={{ color: "#cbd5f5", maxWidth: "720px", margin: "0 auto" }}>
+          Prototype pipeline powered by open-source AI: analyze uploaded footage, build tone-flexible scripts,
+          render cloned-voice narration, synthesize ambient beds, and export aligned assets for YouCut.
+        </p>
+        {loadingMessage && (
+          <div
+            style={{
+              marginTop: "12px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "8px 16px",
+              borderRadius: "999px",
+              background: "rgba(15, 118, 110, 0.2)",
+              color: "#5eead4"
+            }}
+          >
+            <Loader2 className="spin" size={18} />
+            <span>{loadingMessage}</span>
+          </div>
+        )}
+      </header>
+
+      <main style={{ display: "grid", gap: "24px" }}>
+        <Card
+          title="1 · Upload Footage"
+          subtitle={uploadedName ? `Loaded: ${uploadedName}` : "Supports .mp4, .mov, .mkv"}
+          actions={
+            videoId && (
+              <button
+                disabled={isAnalyzing}
+                onClick={startAnalysis}
+                style={primaryButtonStyle(isAnalyzing)}
+              >
+                {isAnalyzing ? <Loader2 className="spin" size={16} /> : <Wand2 size={16} />} Analyze
+              </button>
+            )
+          }
+        >
+          <label
+            htmlFor="video-upload"
+            style={{
+              border: "2px dashed rgba(148, 163, 184, 0.35)",
+              borderRadius: "16px",
+              padding: "48px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "12px",
+              cursor: "pointer"
+            }}
+          >
+            <Film size={48} color="#38bdf8" />
+            <span>Drag & drop or click to browse</span>
+            <input
+              id="video-upload"
+              type="file"
+              accept="video/*"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  handleUpload(file).catch(console.error);
+                }
+              }}
+            />
+          </label>
+        </Card>
+
+        <Card
+          title="2 · Analysis Dashboard"
+          subtitle="Scene detection · Whisper speech-to-text · keyword mining"
+          actions={
+            analysis?.status === "completed" && analysis.result?.transcript_path ? (
+              <a href={`/api/files?path=${encodeURIComponent(analysis.result.transcript_path)}`} style={linkStyle}>
+                Download transcript
+              </a>
+            ) : null
+          }
+        >
+          {analysis ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <StatusBadge status={analysis.status} message={analysis.message} />
+              {analysis.result?.summary && (
+                <div style={summaryBoxStyle}>
+                  <h3>Summary</h3>
+                  <p>{analysis.result.summary}</p>
+                </div>
+              )}
+              {!!analysis.result?.keywords?.length && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {analysis.result.keywords.map((keyword) => (
+                    <span key={keyword} style={chipStyle}>
+                      #{keyword}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {history.length > 0 && (
+                <div style={historyBoxStyle}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontSize: "1rem" }}>Recent sessions</h3>
+                    <button onClick={() => refreshHistory()} style={secondaryButtonStyle}>
+                      Refresh
+                    </button>
+                  </div>
+                  <ul style={{ listStyle: "none", display: "grid", gap: "8px" }}>
+                    {history.slice(0, 6).map((item) => (
+                      <li
+                        key={item.video_id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "8px 12px",
+                          borderRadius: "10px",
+                          background: "rgba(15, 23, 42, 0.6)"
+                        }}
+                      >
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ fontWeight: 600 }}>{item.filename ?? item.video_id}</span>
+                          <span style={{ color: "#94a3b8", fontSize: "0.85rem" }}>{item.message ?? ""}</span>
+                        </div>
+                        <StatusBadge status={item.status} message={undefined} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p style={{ color: "#94a3b8" }}>Upload a video to unlock analysis insights.</p>
+          )}
+        </Card>
+
+        <Card
+          title="3 · Script Studio"
+          subtitle="Style-aware script drafting"
+          actions={
+            canGenerateScript && (
+              <button onClick={generateScript} style={primaryButtonStyle(false)}>
+                <ScriptText size={16} /> Generate script
+              </button>
+            )
+          }
+        >
+          <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+            <select value={scriptStyle} onChange={(event) => setScriptStyle(event.target.value)} style={inputStyle}>
+              {SCRIPT_STYLES.map((style) => (
+                <option key={style.value} value={style.value}>
+                  {style.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={scriptNotes}
+              onChange={(event) => setScriptNotes(event.target.value)}
+              placeholder="Optional notes (calls-to-action, sponsors, language)"
+              style={{ ...inputStyle, flex: 1, minWidth: "240px" }}
+            />
+            {scriptHistory.length > 0 && (
+              <select
+                value=""
+                onChange={(event) => {
+                  const index = parseInt(event.target.value, 10);
+                  if (Number.isNaN(index)) return;
+                  const match = scriptHistory[index];
+                  if (match) {
+                    setScriptStyle(match.style);
+                    setScriptText(match.script);
+                    setScriptTokens(match.token_count ?? null);
+                    setScriptDuration(match.duration_seconds ?? null);
+                    setScriptSummary(match.summary ?? "");
+                  }
+                }}
+                style={inputStyle}
+              >
+                <option value="">Load previous script</option>
+                {scriptHistory.map((item, index) => (
+                  <option key={`${item.video_id}-${index}`} value={String(index)}>
+                    {item.style} · {formatDuration(item.duration_seconds)} · {formatTimestamp(item.created_at)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <textarea
+            value={scriptText}
+            onChange={(event) => setScriptText(event.target.value)}
+            placeholder="Generated script will appear here"
+            rows={10}
+            style={{ ...inputStyle, resize: "vertical" }}
+          />
+          {(scriptTokens || scriptDuration || scriptSummary) && (
+            <div style={metaBoxStyle}>
+              <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                {scriptDuration && <span>Est. runtime: {formatDuration(scriptDuration)}</span>}
+                {scriptTokens && <span>Tokens ≈ {scriptTokens}</span>}
+              </div>
+              {scriptSummary && <p style={{ color: "#cbd5f5", fontSize: "0.9rem" }}>{scriptSummary}</p>}
+            </div>
+          )}
+        </Card>
+
+        <Card
+          title="4 · Voice Forge"
+          subtitle="Clone voice fingerprints and render narration"
+          actions={
+            scriptText && selectedVoice && (
+              <button onClick={synthesizeVoice} style={primaryButtonStyle(false)}>
+                <Mic2 size={16} /> Synthesize narration
+              </button>
+            )
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+              <input
+                value={voiceName}
+                onChange={(event) => setVoiceName(event.target.value)}
+                placeholder="Voice label"
+                style={inputStyle}
+              />
+              <input
+                type="file"
+                accept="audio/*"
+                onChange={(event) => setVoiceSample(event.target.files?.[0] ?? null)}
+                style={inputStyle}
+              />
+              <button onClick={registerVoice} style={secondaryButtonStyle}>
+                Register voice
+              </button>
+            </div>
+            <div>
+              <label style={{ display: "block", marginBottom: "4px", color: "#cbd5f5" }}>Select voice</label>
+              <select
+                value={selectedVoice}
+                onChange={(event) => setSelectedVoice(event.target.value)}
+                style={inputStyle}
+              >
+                <option value="">Choose a voice</option>
+                {voices.map((voice) => (
+                  <option key={voice.voice_id} value={voice.voice_id}>
+                    {voice.display_name}
+                  </option>
+                ))}
+              </select>
+              {activeVoice && (
+                <div style={voiceMetaStyle}>
+                  <span>Created: {formatTimestamp(activeVoice.created_at)}</span>
+                  <span>
+                    Last used: {activeVoice.last_used_at ? formatTimestamp(activeVoice.last_used_at) : "Never"}
+                  </span>
+                  <span>Renders: {activeVoice.synth_count}</span>
+                </div>
+              )}
+            </div>
+            {narrationPath && (
+              <a href={`/api/files?path=${encodeURIComponent(narrationPath)}`} style={linkStyle}>
+                Download narration take
+              </a>
+            )}
+          </div>
+        </Card>
+
+        <Card
+          title="5 · Audio Atmospherics"
+          subtitle="Procedural music + ambiences"
+          actions={
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button onClick={generateMusicTrack} style={secondaryButtonStyle}>
+                <Music3 size={16} /> Music
+              </button>
+              <button onClick={generateAmbientLayer} style={secondaryButtonStyle}>
+                <Waves size={16} /> Ambient
+              </button>
+            </div>
+          }
+        >
+          <div style={{ display: "grid", gap: "12px" }}>
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+              <input value={musicPrompt} onChange={(event) => setMusicPrompt(event.target.value)} style={inputStyle} />
+              <select value={musicMood} onChange={(event) => setMusicMood(event.target.value)} style={inputStyle}>
+                <option value="calm">Calm</option>
+                <option value="uplifting">Uplifting</option>
+                <option value="suspense">Suspense</option>
+                <option value="energetic">Energetic</option>
+                <option value="ambient">Ambient</option>
+              </select>
+              <input
+                type="number"
+                min={5}
+                max={300}
+                value={musicDuration}
+                onChange={(event) => setMusicDuration(parseInt(event.target.value, 10))}
+                style={{ ...inputStyle, width: "120px" }}
+              />
+            </div>
+            {musicPath && (
+              <a href={`/api/files?path=${encodeURIComponent(musicPath)}`} style={linkStyle}>
+                Download music track
+              </a>
+            )}
+            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+              <select
+                value={ambientType}
+                onChange={(event) => setAmbientType(event.target.value as typeof AMBIENT_TYPES[number])}
+                style={inputStyle}
+              >
+                {AMBIENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={ambientDuration}
+                min={5}
+                max={300}
+                onChange={(event) => setAmbientDuration(parseInt(event.target.value, 10))}
+                style={{ ...inputStyle, width: "120px" }}
+              />
+            </div>
+            {ambientPaths.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {ambientPaths.map((path) => (
+                  <a key={path} href={`/api/files?path=${encodeURIComponent(path)}`} style={linkStyle}>
+                    Ambient layer · {path.split("/").slice(-1)[0]}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <Card
+          title="6 · Export for YouCut"
+          subtitle="Timeline JSON + assets bundle"
+          actions={
+            narrationPath && (
+              <button onClick={buildTimeline} style={primaryButtonStyle(false)}>
+                <Settings2 size={16} /> Build timeline
+              </button>
+            )
+          }
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+            <input
+              id="bundle-assets"
+              type="checkbox"
+              checked={bundleAssets}
+              onChange={(event) => setBundleAssets(event.target.checked)}
+            />
+            <label htmlFor="bundle-assets" style={{ color: "#cbd5f5" }}>
+              Include narration/music/ambient assets in a zip bundle
+            </label>
+          </div>
+          {timelinePath ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <p style={{ color: "#94a3b8" }}>
+                Import the JSON into YouCut, then drop the bundled audio layers. Video source stays in your library.
+              </p>
+              <a href={`/api/files?path=${encodeURIComponent(timelinePath)}`} style={linkStyle}>
+                Download timeline JSON
+              </a>
+              {bundlePath && (
+                <a href={`/api/files?path=${encodeURIComponent(bundlePath)}`} style={linkStyle}>
+                  Download zip bundle
+                </a>
+              )}
+            </div>
+          ) : (
+            <p style={{ color: "#94a3b8" }}>Generate narration, music, or ambient layers to enable export.</p>
+          )}
+        </Card>
+      </main>
+    </div>
+  );
+}
+
+type VideoUploadResponse = { video_id: string; filename: string };
+type TimelineResponse = { export_path: string; bundle_path?: string };
+
+function StatusBadge({ status, message }: { status: string; message?: string | null }) {
+  const colorMap: Record<string, string> = {
+    pending: "rgba(148, 163, 184, 0.25)",
+    processing: "rgba(56, 189, 248, 0.25)",
+    completed: "rgba(34, 197, 94, 0.25)",
+    failed: "rgba(244, 63, 94, 0.25)"
+  };
+  const labelMap: Record<string, string> = {
+    pending: "Pending",
+    processing: "Processing",
+    completed: "Completed",
+    failed: "Failed"
+  };
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        gap: "8px",
+        alignItems: "center",
+        borderRadius: "999px",
+        padding: "8px 14px",
+        background: colorMap[status] ?? "rgba(148, 163, 184, 0.2)",
+        color: "#e2e8f0"
+      }}
+    >
+      <Loader2 className={status === "processing" ? "spin" : ""} size={16} />
+      <span>{labelMap[status] ?? status}</span>
+      {message && <span style={{ color: "#94a3b8" }}>{message}</span>}
+    </div>
+  );
+}
+
+const primaryButtonStyle = (disabled: boolean) => ({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "10px 18px",
+  borderRadius: "999px",
+  border: "none",
+  background: disabled ? "rgba(148, 163, 184, 0.4)" : "linear-gradient(135deg, #0ea5e9, #6366f1)",
+  color: "white",
+  fontWeight: 600,
+  transition: "transform 0.15s ease",
+  opacity: disabled ? 0.7 : 1
+});
+
+const secondaryButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  padding: "10px 16px",
+  borderRadius: "999px",
+  border: "1px solid rgba(148, 163, 184, 0.4)",
+  background: "rgba(30, 41, 59, 0.6)",
+  color: "#e2e8f0",
+  fontWeight: 500
+};
+
+const inputStyle: React.CSSProperties = {
+  background: "rgba(15, 23, 42, 0.6)",
+  border: "1px solid rgba(148, 163, 184, 0.3)",
+  borderRadius: "10px",
+  padding: "10px 14px",
+  color: "#e2e8f0",
+  minWidth: "180px"
+};
+
+const linkStyle: React.CSSProperties = {
+  color: "#38bdf8",
+  textDecoration: "none",
+  fontWeight: 500
+};
+
+const summaryBoxStyle: React.CSSProperties = {
+  background: "rgba(30, 41, 59, 0.7)",
+  borderRadius: "12px",
+  padding: "16px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "6px"
+};
+
+const chipStyle: React.CSSProperties = {
+  padding: "6px 12px",
+  borderRadius: "999px",
+  background: "rgba(59, 130, 246, 0.2)",
+  color: "#93c5fd",
+  fontSize: "0.85rem"
+};
+
+const historyBoxStyle: React.CSSProperties = {
+  display: "grid",
+  gap: "12px",
+  padding: "16px",
+  background: "rgba(30, 41, 59, 0.5)",
+  borderRadius: "12px",
+  border: "1px solid rgba(148, 163, 184, 0.2)"
+};
+
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function formatDuration(seconds?: number | null): string {
+  if (!seconds || Number.isNaN(seconds)) return "--";
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins <= 0) {
+    return `${secs}s`;
+  }
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+}
+
+const metaBoxStyle: React.CSSProperties = {
+  marginTop: "12px",
+  padding: "14px",
+  borderRadius: "12px",
+  border: "1px solid rgba(148, 163, 184, 0.25)",
+  background: "rgba(15, 23, 42, 0.6)",
+  display: "grid",
+  gap: "8px"
+};
+
+const voiceMetaStyle: React.CSSProperties = {
+  marginTop: "8px",
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "12px",
+  fontSize: "0.85rem",
+  color: "#94a3b8"
+};
